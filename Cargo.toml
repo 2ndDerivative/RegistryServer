@@ -1,0 +1,14 @@
+[package]
+name = "registry_server"
+authors = ["Niclas Klugmann <niclas@klugmann.de>"]
+version = "0.1.0"
+edition = "2021"
+description = "Cargo Registry Server"
+license = "All Rights Reserved"
+keywords = ["cargo", "webserver", "registry"]
+publish = false
+
+[dependencies]
+axum = { version = "0.7.7", default-features = false, features = ["http1", "json", "tokio"] }
+serde = { version = "1.0.210", features = ["derive"] }
+tokio = { version = "1.40.0", default-features = false, features = ["macros", "rt-multi-thread", "net"] }
