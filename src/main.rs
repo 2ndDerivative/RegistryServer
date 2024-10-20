@@ -1,8 +1,10 @@
-use std::{net::{IpAddr, SocketAddr}, path::PathBuf, sync::Arc};
+use std::{net::{IpAddr, SocketAddr}, sync::Arc};
 
 use axum::Router;
+use git::ReadOnlyPath;
 use tokio::{net::TcpListener, sync::Mutex};
 
+mod git;
 mod middleware;
 
 const IP_ENV_VARIABLE: &str = "REGISTRY_SERVER_IP";
@@ -11,7 +13,7 @@ const REPOSITORY_ENV_VARIABLE: &str = "REGISTRY_SERVER_REPOSITORY_PATH";
 
 #[derive(Clone, Debug)]
 struct ServerState {
-    _git_repository_path: Arc<Mutex<PathBuf>>
+    _git_repository_path: Arc<Mutex<ReadOnlyPath>>
 }
 
 #[tokio::main]
@@ -19,8 +21,8 @@ async fn main() {
     let ip_from_env: IpAddr = std::env::var(IP_ENV_VARIABLE).unwrap().parse().unwrap();
     let port_from_env: u16 = std::env::var(PORT_ENV_VARIABLE).unwrap().parse().unwrap();
     let tcp_connector = TcpListener::bind(SocketAddr::from((ip_from_env, port_from_env))).await.unwrap();
-    let git_repository_path = PathBuf::from(std::env::var(REPOSITORY_ENV_VARIABLE).unwrap());
-    let state = ServerState { _git_repository_path: Arc::new(Mutex::new(git_repository_path)) };
+    let git_repository_from_env = std::env::var(REPOSITORY_ENV_VARIABLE).unwrap();
+        let state = ServerState { _git_repository_path: Arc::new(Mutex::new(ReadOnlyPath::new(git_repository_from_env.into()))) };
     let router: Router = Router::new()
         .layer(axum::middleware::from_fn(middleware::convert_errors_to_json))
         .with_state(state);
