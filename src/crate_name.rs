@@ -5,7 +5,7 @@ use unicode_xid::UnicodeXID;
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// Shares logic with cargo for validity of crate names
-/// 
+///
 /// 1. Can't be empty
 /// 2. Can't start with digit
 /// 3. First letter must be Unicode XID or _
@@ -26,17 +26,21 @@ impl FromStr for CrateName {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut chars = s.chars();
         match chars.next() {
-            Some(letter) if letter.is_ascii_digit() => return Err(InvalidCrateName::StartsWithDigit),
+            Some(letter) if letter.is_ascii_digit() => {
+                return Err(InvalidCrateName::StartsWithDigit)
+            }
             None => return Err(InvalidCrateName::Empty),
             Some('_') => {}
-            Some(letter) if !letter.is_xid_start() => return Err(InvalidCrateName::FirstLetterNotUXID),
+            Some(letter) if !letter.is_xid_start() => {
+                return Err(InvalidCrateName::FirstLetterNotUXID)
+            }
             _ => {}
         }
         for ch in chars {
             match ch {
-                '-' => {},
-                ch if !ch.is_xid_continue() => return  Err(InvalidCrateName::LetterNotUXID),
-                _ => {},
+                '-' => {}
+                ch if !ch.is_xid_continue() => return Err(InvalidCrateName::LetterNotUXID),
+                _ => {}
             }
         }
         Ok(CrateName(s.to_string()))
@@ -44,8 +48,9 @@ impl FromStr for CrateName {
 }
 impl<'de> Deserialize<'de> for CrateName {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de> {
+    where
+        D: serde::Deserializer<'de>,
+    {
         String::deserialize(deserializer)?
             .parse()
             .map_err(|e: InvalidCrateName| serde::de::Error::custom(e.to_string()))

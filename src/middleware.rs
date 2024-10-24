@@ -1,18 +1,29 @@
-use axum::{extract::Request, http::{header::{CONTENT_LENGTH, CONTENT_TYPE}, StatusCode}, middleware::Next, response::{IntoResponse, Response}, Json};
+use axum::{
+    extract::Request,
+    http::{
+        header::{CONTENT_LENGTH, CONTENT_TYPE},
+        StatusCode,
+    },
+    middleware::Next,
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde::Serialize;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 /// Cargo error reponse
-/// 
+///
 /// Mostly used for errors. Can be used with a positive error code,
 /// will display the messages in this to the user nontheless.
 pub struct ApiErrorResponse {
-    errors: Vec<ApiError>
+    errors: Vec<ApiError>,
 }
 
 impl ApiErrorResponse {
     pub fn push_error(&mut self, error: impl Into<String>) {
-        self.errors.push(ApiError { detail: error.into() });
+        self.errors.push(ApiError {
+            detail: error.into(),
+        });
     }
     pub fn new() -> Self {
         Self::default()
@@ -33,16 +44,16 @@ impl IntoResponse for ApiErrorResponse {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-/// Component of a multi-error cargo response 
+/// Component of a multi-error cargo response
 pub struct ApiError {
-    detail: String
+    detail: String,
 }
 
 pub async fn convert_errors_to_json(request: Request, next: Next) -> Response {
     let response = next.run(request).await;
     let status = response.status();
     if !status.is_client_error() && !status.is_server_error() {
-        return  response;
+        return response;
     }
 
     let content_type = response.headers().get(CONTENT_TYPE);
