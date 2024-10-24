@@ -17,6 +17,7 @@ use read_only_mutex::ReadOnlyMutex;
 use tokio::net::TcpListener;
 
 mod crate_name;
+mod feature_name;
 mod middleware;
 mod read_only_mutex;
 
