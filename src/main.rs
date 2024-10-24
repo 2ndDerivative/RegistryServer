@@ -83,15 +83,15 @@ async fn publish_handler(headers: HeaderMap, body: Body) -> Result<String, Respo
 mod publish_metadata {
     use std::collections::HashMap;
 
+    use semver::{Version, VersionReq};
     use serde::Deserialize;
 
     use crate::crate_name::CrateName;
 
     #[derive(Debug, Deserialize)]
-    #[expect(dead_code)]
     pub struct PublishMetadata {
         name: CrateName,
-        vers: semver::Version,
+        vers: Version,
         deps: Vec<DependencyMetadata>,
         features: HashMap<String, Vec<String>>,
         authors: Vec<String>,
@@ -110,10 +110,9 @@ mod publish_metadata {
         rust_version: Option<String>,
     }
     #[derive(Debug, Deserialize)]
-    #[expect(dead_code)]
     pub struct DependencyMetadata {
-        name: String,
-        version_req: semver::VersionReq,
+        name: CrateName,
+        version_req: VersionReq,
         /// Feature names are Unicode XID, plus starting with _ or digits,
         /// and may include -, + or . after the first character
         features: Vec<String>,
@@ -122,7 +121,7 @@ mod publish_metadata {
         target: Option<String>,
         kind: DependencyKind,
         registry: Option<String>,
-        explicit_name_in_toml: Option<String>,
+        explicit_name_in_toml: Option<CrateName>,
     }
     #[derive(Debug, Deserialize)]
     #[serde(rename_all="lowercase")]
