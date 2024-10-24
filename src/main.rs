@@ -104,19 +104,19 @@ async fn publish_handler(headers: HeaderMap, body: Body) -> Result<String, Respo
 }
 
 mod publish_metadata {
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     use semver::{Version, VersionReq};
     use serde::Deserialize;
 
-    use crate::crate_name::CrateName;
+    use crate::{crate_name::CrateName, feature_name::FeatureName};
 
     #[derive(Debug, Deserialize)]
     pub struct PublishMetadata {
         name: CrateName,
         vers: Version,
         deps: Vec<DependencyMetadata>,
-        features: HashMap<String, Vec<String>>,
+        features: BTreeMap<FeatureName, Vec<String>>,
         authors: Vec<String>,
         description: Option<String>,
         documentation: Option<String>,
@@ -128,7 +128,7 @@ mod publish_metadata {
         license: Option<String>,
         license_file: Option<String>,
         repository: Option<String>,
-        badges: HashMap<String, HashMap<String, String>>,
+        badges: BTreeMap<String, BTreeMap<String, String>>,
         links: Option<String>,
         rust_version: Option<String>,
     }
@@ -136,9 +136,7 @@ mod publish_metadata {
     pub struct DependencyMetadata {
         name: CrateName,
         version_req: VersionReq,
-        /// Feature names are Unicode XID, plus starting with _ or digits,
-        /// and may include -, + or . after the first character
-        features: Vec<String>,
+        features: Vec<FeatureName>,
         optional: bool,
         default_features: bool,
         target: Option<String>,
