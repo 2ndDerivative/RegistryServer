@@ -19,6 +19,7 @@ use tokio::net::TcpListener;
 mod crate_name;
 mod feature_name;
 mod middleware;
+mod non_empty_strings;
 mod publish;
 mod read_only_mutex;
 
@@ -93,7 +94,7 @@ async fn publish_handler(headers: HeaderMap, body: Body) -> Result<String, Respo
         .split_at_checked(metadata_length)
         .ok_or(PublishError::UnexpectedEOF.into_response())?;
     let (file_length_bytes, file_content) = request_body_rest
-        .split_first_chunk()
+        .split_first_chunk::<4>()
         .ok_or(PublishError::UnexpectedEOF.into_response())?;
     if (u32::from_le_bytes(*file_length_bytes) as usize) < file_content.len() {
         return Err(PublishError::UnexpectedEOF.into_response());

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use semver::{Version, VersionReq};
 use serde::Deserialize;
 
-use crate::{crate_name::CrateName, feature_name::FeatureName};
+use crate::{crate_name::CrateName, non_empty_strings::{Description, Keyword}, feature_name::FeatureName};
 
 #[derive(Debug, Deserialize)]
 pub struct Metadata {
@@ -12,13 +12,14 @@ pub struct Metadata {
     deps: Vec<DependencyMetadata>,
     features: BTreeMap<FeatureName, Vec<String>>,
     authors: Vec<String>,
-    description: Option<String>,
+    /// This implementation doesn't accept empty descriptions
+    description: Description,
     documentation: Option<String>,
     homepage: Option<String>,
     readme: Option<String>,
     readme_file: Option<String>,
     /// Free user-controlled strings, should maybe be restricted to be non-empty
-    keywords: Vec<String>,
+    keywords: Vec<Keyword>,
     /// Categories the server may choose. should probably be matched to a database or sth
     categories: Vec<String>,
     /// NAME of the license
