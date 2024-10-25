@@ -12,13 +12,14 @@ use axum::{
     routing::put,
     Router,
 };
-use publish_metadata::PublishMetadata;
+use publish::Metadata;
 use read_only_mutex::ReadOnlyMutex;
 use tokio::net::TcpListener;
 
 mod crate_name;
 mod feature_name;
 mod middleware;
+mod publish;
 mod read_only_mutex;
 
 const IP_ENV_VARIABLE: &str = "REGISTRY_SERVER_IP";
@@ -97,58 +98,8 @@ async fn publish_handler(headers: HeaderMap, body: Body) -> Result<String, Respo
     if (u32::from_le_bytes(*file_length_bytes) as usize) < file_content.len() {
         return Err(PublishError::UnexpectedEOF.into_response());
     }
-    let metadata = serde_json::from_slice::<PublishMetadata>(metadata_bytes)
+    let metadata = serde_json::from_slice::<Metadata>(metadata_bytes)
         .map_err(|e| PublishError::InvalidMetadata(e).into_response())?;
     eprintln!("{metadata:#?}");
     Err((StatusCode::SERVICE_UNAVAILABLE, "still building").into_response())
-}
-
-mod publish_metadata {
-    use std::collections::BTreeMap;
-
-    use semver::{Version, VersionReq};
-    use serde::Deserialize;
-
-    use crate::{crate_name::CrateName, feature_name::FeatureName};
-
-    #[derive(Debug, Deserialize)]
-    pub struct PublishMetadata {
-        name: CrateName,
-        vers: Version,
-        deps: Vec<DependencyMetadata>,
-        features: BTreeMap<FeatureName, Vec<String>>,
-        authors: Vec<String>,
-        description: Option<String>,
-        documentation: Option<String>,
-        homepage: Option<String>,
-        readme: Option<String>,
-        readme_file: Option<String>,
-        keywords: Vec<String>,
-        categories: Vec<String>,
-        license: Option<String>,
-        license_file: Option<String>,
-        repository: Option<String>,
-        badges: BTreeMap<String, BTreeMap<String, String>>,
-        links: Option<String>,
-        rust_version: Option<String>,
-    }
-    #[derive(Debug, Deserialize)]
-    pub struct DependencyMetadata {
-        name: CrateName,
-        version_req: VersionReq,
-        features: Vec<FeatureName>,
-        optional: bool,
-        default_features: bool,
-        target: Option<String>,
-        kind: DependencyKind,
-        registry: Option<String>,
-        explicit_name_in_toml: Option<CrateName>,
-    }
-    #[derive(Debug, Deserialize)]
-    #[serde(rename_all = "lowercase")]
-    pub enum DependencyKind {
-        Dev,
-        Build,
-        Normal,
-    }
 }
