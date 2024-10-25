@@ -1,9 +1,9 @@
-use std::{fmt::Display, str::FromStr};
+use std::{borrow::Cow, fmt::Display, hash::Hash, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 use unicode_xid::UnicodeXID;
 
-#[derive(Clone, Debug, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, Serialize)]
 /// Shares logic with cargo for validity of crate names
 ///
 /// 1. Can't be empty
@@ -11,14 +11,45 @@ use unicode_xid::UnicodeXID;
 /// 3. First letter must be Unicode XID or _
 /// 4. Must continue with Unicode XID Continue or - (includes _)
 pub struct CrateName(String);
-impl AsRef<str> for CrateName {
-    fn as_ref(&self) -> &str {
+impl CrateName {
+    pub fn original_str(&self) -> &str {
         &self.0
+    }
+    pub fn normalized(&self) -> Cow<str> {
+        if self.is_normalized() {
+            Cow::Borrowed(self.original_str())
+        } else {
+            Cow::Owned(self.0.replace('-', "_"))
+        }
+    }
+    pub fn is_normalized(&self) -> bool {
+        !self.0.contains('-')
+    }
+}
+impl PartialEq for CrateName {
+    fn eq(&self, other: &Self) -> bool {
+        self.normalized() == other.normalized()
+    }
+}
+impl Eq for CrateName {}
+impl PartialOrd for CrateName {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+impl Ord for CrateName {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.normalized().cmp(&other.normalized())
+    }
+}
+impl Hash for CrateName {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.normalized().hash(state);
     }
 }
 impl Display for CrateName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_ref())
+        f.write_str(self.original_str())
     }
 }
 impl FromStr for CrateName {
