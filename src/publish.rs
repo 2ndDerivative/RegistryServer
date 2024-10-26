@@ -20,18 +20,26 @@ pub async fn publish_handler(
         CrateExists::NoButNormalized => return Err((StatusCode::BAD_REQUEST, "Crate exists under different -_ usage or capitalization").into_response()),
         // Add crate to database, assign new owner
         CrateExists::No => {
-            add_crate(&metadata, &database_connection_pool)
-                .await
-                .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+
             PublishKind::NewCrate
         },
         // Check if person is owner, if newer version update crate data
         CrateExists::Yes => PublishKind::NewVersionForExistingCrate,
     };
+    let mut transaction = database_connection_pool.begin().await.unwrap();
+    match publish_kind {
+        PublishKind::NewCrate => add_crate(&metadata, &mut *transaction)
+                .await
+                .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?,
+        PublishKind::NewVersionForExistingCrate => {}
+    };
     eprintln!("{metadata:#?}");
     create_crate_file(file_content, metadata.vers, &metadata.name)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?;
+    transaction.commit()
+        .await
+        .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
     Err((StatusCode::SERVICE_UNAVAILABLE, "still building").into_response())
 }
 #[derive(Debug, Serialize)]
