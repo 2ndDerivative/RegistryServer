@@ -29,8 +29,8 @@ pub async fn publish_handler(
     let mut transaction = database_connection_pool.begin().await.unwrap();
     match publish_kind {
         PublishKind::NewCrate => add_crate(&metadata, &mut *transaction)
-                .await
-                .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?,
+            .await
+            .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?,
         PublishKind::NewVersionForExistingCrate => {}
     };
     eprintln!("{metadata:#?}");
