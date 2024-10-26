@@ -1,15 +1,15 @@
 use std::{collections::BTreeMap, fmt::{Display, Formatter, Result as FmtResult}};
 
-use axum::{body::{to_bytes, Body}, extract::State, http::StatusCode, response::{IntoResponse, Response}};
+use axum::{body::{to_bytes, Body}, extract::State, http::StatusCode, response::{IntoResponse, Response}, Json};
 use semver::{Version, VersionReq};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{crate_exists_or_normalized, CrateExists}, ServerState};
 
 pub async fn publish_handler(
     State(ServerState { database_connection_pool, ..}): State<ServerState>,
     body: Body
-) -> Result<String, Response> {
+) -> Result<Json<PublishWarnings>, Response> {
     let body_bytes = to_bytes(body, usize::MAX)
         .await
         .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE.into_response())?;
@@ -28,6 +28,16 @@ pub async fn publish_handler(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?;
     Err((StatusCode::SERVICE_UNAVAILABLE, "still building").into_response())
+}
+#[derive(Debug, Serialize)]
+pub struct SuccessfulPublish {
+    warnings: PublishWarnings
+}
+#[derive(Debug, Serialize)]
+pub struct PublishWarnings {
+    invalid_categories: Vec<String>,
+    invalid_badges: Vec<String>,
+    other: Vec<String>
 }
 
 #[derive(Clone, Copy, Debug)]
