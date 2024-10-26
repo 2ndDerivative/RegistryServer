@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fmt::{Display, Formatter, Result as FmtResult}};
 
-use axum::{body::{to_bytes, Body}, extract::State, http::{header::CONTENT_LENGTH, HeaderMap, StatusCode}, response::{IntoResponse, Response}};
+use axum::{body::{to_bytes, Body}, extract::State, http::StatusCode, response::{IntoResponse, Response}};
 use semver::{Version, VersionReq};
 use serde::Deserialize;
 
@@ -8,15 +8,11 @@ use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::
 
 pub async fn publish_handler(
     State(ServerState { database_connection_pool, ..}): State<ServerState>,
-    headers: HeaderMap,
     body: Body
 ) -> Result<String, Response> {
-    let content_length: Option<usize> = headers
-        .get(CONTENT_LENGTH)
-        .map(|b| b.to_str().unwrap().parse().unwrap());
-    let body_bytes = to_bytes(body, content_length.unwrap_or(usize::MAX))
+    let body_bytes = to_bytes(body, usize::MAX)
         .await
-        .unwrap();
+        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE.into_response())?;
     let (metadata, file_content) = extract_request_body(&body_bytes).map_err(IntoResponse::into_response)?;
     let publish_kind = match dbg!(crate_exists_or_normalized(&metadata.name, &database_connection_pool)
         .await
