@@ -1,6 +1,6 @@
 use sqlx::{Pool, Postgres};
 
-use crate::crate_name::CrateName;
+use crate::{crate_name::CrateName, publish::Metadata};
 
 pub async fn crate_exists_exact(crate_name: &CrateName, pool: &Pool<Postgres>) -> Result<bool, sqlx::Error> {
     let res = sqlx::query!("SELECT EXISTS(SELECT crate_id, original_name FROM crates WHERE original_name = $1)", crate_name.original_str())
@@ -21,6 +21,26 @@ pub async fn crate_exists_or_normalized(crate_name: &CrateName, pool: &Pool<Post
     } else {
         Ok(CrateExists::No)
     }
+}
+pub async fn add_crate(metadata: &Metadata, pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
+    sqlx::query!("INSERT INTO crates (
+        original_name, documentation, homepage,
+        readme, readme_file,
+        license, license_file,
+        repository, links, rust_version)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        metadata.name.original_str(),
+        metadata.documentation,
+        metadata.homepage,
+        metadata.readme,
+        metadata.readme_file,
+        metadata.license,
+        metadata.license_file,
+        metadata.repository,
+        metadata.links,
+        metadata.rust_version
+    ).execute(pool).await?;
+    Ok(())
 }
 #[derive(Clone, Copy, Debug)]
 pub enum CrateExists {

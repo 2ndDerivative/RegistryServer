@@ -4,7 +4,7 @@ use axum::{body::{to_bytes, Body}, extract::State, http::StatusCode, response::{
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
-use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{crate_exists_or_normalized, CrateExists}, ServerState};
+use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{add_crate, crate_exists_or_normalized, CrateExists}, ServerState};
 
 pub async fn publish_handler(
     State(ServerState { database_connection_pool, ..}): State<ServerState>,
@@ -19,7 +19,12 @@ pub async fn publish_handler(
         .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())? {
         CrateExists::NoButNormalized => return Err((StatusCode::BAD_REQUEST, "Crate exists under different -_ usage or capitalization").into_response()),
         // Add crate to database, assign new owner
-        CrateExists::No => PublishKind::NewCrate,
+        CrateExists::No => {
+            add_crate(&metadata, &database_connection_pool)
+                .await
+                .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+            PublishKind::NewCrate
+        },
         // Check if person is owner, if newer version update crate data
         CrateExists::Yes => PublishKind::NewVersionForExistingCrate,
     };
@@ -94,29 +99,29 @@ impl Display for BodyError {
 
 #[derive(Debug, Deserialize)]
 pub struct Metadata {
-    name: CrateName,
-    vers: Version,
-    deps: Vec<DependencyMetadata>,
-    features: BTreeMap<FeatureName, Vec<String>>,
-    authors: Vec<String>,
+    pub(crate) name: CrateName,
+    pub(crate) vers: Version,
+    pub(crate) deps: Vec<DependencyMetadata>,
+    pub(crate) features: BTreeMap<FeatureName, Vec<String>>,
+    pub(crate) authors: Vec<String>,
     /// This implementation doesn't accept empty descriptions
-    description: Description,
-    documentation: Option<String>,
-    homepage: Option<String>,
-    readme: Option<String>,
-    readme_file: Option<String>,
+    pub(crate) description: Description,
+    pub(crate) documentation: Option<String>,
+    pub(crate) homepage: Option<String>,
+    pub(crate) readme: Option<String>,
+    pub(crate) readme_file: Option<String>,
     /// Free user-controlled strings, should maybe be restricted to be non-empty
-    keywords: Vec<Keyword>,
+    pub(crate) keywords: Vec<Keyword>,
     /// Categories the server may choose. should probably be matched to a database or sth
-    categories: Vec<String>,
+    pub(crate) categories: Vec<String>,
     /// NAME of the license
-    license: Option<String>,
+    pub(crate) license: Option<String>,
     /// FILE WITH CONTENT of the license
-    license_file: Option<String>,
-    repository: Option<String>,
-    badges: BTreeMap<String, BTreeMap<String, String>>,
-    links: Option<String>,
-    rust_version: Option<String>,
+    pub(crate) license_file: Option<String>,
+    pub(crate) repository: Option<String>,
+    pub(crate) badges: BTreeMap<String, BTreeMap<String, String>>,
+    pub(crate) links: Option<String>,
+    pub(crate) rust_version: Option<String>,
 }
 #[derive(Debug, Deserialize)]
 pub struct DependencyMetadata {
