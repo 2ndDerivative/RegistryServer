@@ -14,9 +14,9 @@ pub async fn publish_handler(
         .await
         .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE.into_response())?;
     let (metadata, file_content) = extract_request_body(&body_bytes).map_err(IntoResponse::into_response)?;
-    let publish_kind = match dbg!(crate_exists_or_normalized(&metadata.name, &database_connection_pool)
+    let publish_kind = match crate_exists_or_normalized(&metadata.name, &database_connection_pool)
         .await
-        .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?) {
+        .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())? {
         CrateExists::NoButNormalized => return Err((StatusCode::BAD_REQUEST, "Crate exists under different -_ usage or capitalization").into_response()),
         // Add crate to database, assign new owner
         CrateExists::No => PublishKind::NewCrate,
