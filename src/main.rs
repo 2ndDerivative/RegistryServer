@@ -1,18 +1,14 @@
 use std::{
-    fmt::{Display, Formatter, Result as FmtResult},
     net::{IpAddr, SocketAddr},
     path::PathBuf,
     sync::Arc,
 };
 
 use axum::{
-    body::{to_bytes, Body},
-    http::{header::CONTENT_LENGTH, HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
     routing::put,
     Router,
 };
-use publish::Metadata;
+use publish::publish_handler;
 use read_only_mutex::ReadOnlyMutex;
 use tokio::net::TcpListener;
 
@@ -50,57 +46,4 @@ async fn main() {
         ))
         .with_state(state);
     axum::serve(tcp_connector, router).await.unwrap()
-}
-
-#[derive(Debug)]
-enum PublishError {
-    UnexpectedEOF,
-    InvalidMetadata(serde_json::Error),
-}
-impl PublishError {
-    fn status_code(&self) -> StatusCode {
-        match self {
-            Self::UnexpectedEOF | Self::InvalidMetadata(_) => StatusCode::BAD_REQUEST,
-        }
-    }
-}
-impl IntoResponse for PublishError {
-    fn into_response(self) -> axum::response::Response {
-        (self.status_code(), self.to_string()).into_response()
-    }
-}
-impl std::error::Error for PublishError {}
-impl Display for PublishError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        match self {
-            Self::UnexpectedEOF => f.write_str("Unexpected end of data stream."),
-            Self::InvalidMetadata(e) => write!(f, "Invalid metadata: {e}"),
-        }
-    }
-}
-
-async fn publish_handler(headers: HeaderMap, body: Body) -> Result<String, Response> {
-    let content_length: Option<usize> = headers
-        .get(CONTENT_LENGTH)
-        .map(|b| b.to_str().unwrap().parse().unwrap());
-    let body_bytes = to_bytes(body, content_length.unwrap_or(usize::MAX))
-        .await
-        .unwrap();
-    let (metadata_length_bytes, rest) = body_bytes
-        .split_first_chunk::<4>()
-        .ok_or(PublishError::UnexpectedEOF.into_response())?;
-    let metadata_length = u32::from_le_bytes(*metadata_length_bytes) as usize;
-    let (metadata_bytes, request_body_rest) = rest
-        .split_at_checked(metadata_length)
-        .ok_or(PublishError::UnexpectedEOF.into_response())?;
-    let (file_length_bytes, file_content) = request_body_rest
-        .split_first_chunk::<4>()
-        .ok_or(PublishError::UnexpectedEOF.into_response())?;
-    if (u32::from_le_bytes(*file_length_bytes) as usize) < file_content.len() {
-        return Err(PublishError::UnexpectedEOF.into_response());
-    }
-    let metadata = serde_json::from_slice::<Metadata>(metadata_bytes)
-        .map_err(|e| PublishError::InvalidMetadata(e).into_response())?;
-    eprintln!("{metadata:#?}");
-    Err((StatusCode::SERVICE_UNAVAILABLE, "still building").into_response())
 }
