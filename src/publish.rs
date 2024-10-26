@@ -46,44 +46,44 @@ enum PublishKind {
     NewVersionForExistingCrate,
 }
 
-fn extract_request_body(bytes: &[u8]) -> Result<(Metadata, &[u8]), PublishError> {
+fn extract_request_body(bytes: &[u8]) -> Result<(Metadata, &[u8]), BodyError> {
     let (metadata_length_bytes, rest) = bytes
         .split_first_chunk::<4>()
-        .ok_or(PublishError::UnexpectedEOF)?;
+        .ok_or(BodyError::UnexpectedEOF)?;
     let metadata_length = u32::from_le_bytes(*metadata_length_bytes) as usize;
     let (metadata_bytes, request_body_rest) = rest
         .split_at_checked(metadata_length)
-        .ok_or(PublishError::UnexpectedEOF)?;
+        .ok_or(BodyError::UnexpectedEOF)?;
     let (file_length_bytes, file_content) = request_body_rest
         .split_first_chunk::<4>()
-        .ok_or(PublishError::UnexpectedEOF)?;
+        .ok_or(BodyError::UnexpectedEOF)?;
     if (u32::from_le_bytes(*file_length_bytes) as usize) < file_content.len() {
-        return Err(PublishError::UnexpectedEOF)
+        return Err(BodyError::UnexpectedEOF)
     }
     let metadata = serde_json::from_slice::<Metadata>(metadata_bytes)
-        .map_err(PublishError::InvalidMetadata)?;
+        .map_err(BodyError::InvalidMetadata)?;
     Ok((metadata, file_content))
 }
 
 #[derive(Debug)]
-pub enum PublishError {
+pub enum BodyError {
     UnexpectedEOF,
     InvalidMetadata(serde_json::Error),
 }
-impl PublishError {
+impl BodyError {
     fn status_code(&self) -> StatusCode {
         match self {
             Self::UnexpectedEOF | Self::InvalidMetadata(_) => StatusCode::BAD_REQUEST,
         }
     }
 }
-impl IntoResponse for PublishError {
+impl IntoResponse for BodyError {
     fn into_response(self) -> axum::response::Response {
         (self.status_code(), self.to_string()).into_response()
     }
 }
-impl std::error::Error for PublishError {}
-impl Display for PublishError {
+impl std::error::Error for BodyError {}
+impl Display for BodyError {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
         match self {
             Self::UnexpectedEOF => f.write_str("Unexpected end of data stream."),
