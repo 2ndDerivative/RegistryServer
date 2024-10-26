@@ -1,23 +1,43 @@
 use std::{collections::BTreeMap, fmt::{Display, Formatter, Result as FmtResult}};
 
-use axum::{body::{to_bytes, Body}, http::{header::CONTENT_LENGTH, HeaderMap, StatusCode}, response::{IntoResponse, Response}};
+use axum::{body::{to_bytes, Body}, extract::State, http::{header::CONTENT_LENGTH, HeaderMap, StatusCode}, response::{IntoResponse, Response}};
 use semver::{Version, VersionReq};
 use serde::Deserialize;
 
-use crate::{crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}};
+use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{crate_exists_or_normalized, CrateExists}, ServerState};
 
-const CRATE_BASE_FILE_PATH: &str = "./filesystem/";
-
-pub async fn publish_handler(headers: HeaderMap, body: Body) -> Result<String, Response> {
+pub async fn publish_handler(
+    State(ServerState { database_connection_pool, ..}): State<ServerState>,
+    headers: HeaderMap,
+    body: Body
+) -> Result<String, Response> {
     let content_length: Option<usize> = headers
         .get(CONTENT_LENGTH)
         .map(|b| b.to_str().unwrap().parse().unwrap());
     let body_bytes = to_bytes(body, content_length.unwrap_or(usize::MAX))
         .await
         .unwrap();
-    let (metadata, _file_content) = extract_request_body(&body_bytes).map_err(IntoResponse::into_response)?;
+    let (metadata, file_content) = extract_request_body(&body_bytes).map_err(IntoResponse::into_response)?;
+    let publish_kind = match dbg!(crate_exists_or_normalized(&metadata.name, &database_connection_pool)
+        .await
+        .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?) {
+        CrateExists::NoButNormalized => return Err((StatusCode::BAD_REQUEST, "Crate exists under different -_ usage or capitalization").into_response()),
+        // Add crate to database, assign new owner
+        CrateExists::No => PublishKind::NewCrate,
+        // Check if person is owner, if newer version update crate data
+        CrateExists::Yes => PublishKind::NewVersionForExistingCrate,
+    };
     eprintln!("{metadata:#?}");
+    create_crate_file(file_content, metadata.vers, &metadata.name)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?;
     Err((StatusCode::SERVICE_UNAVAILABLE, "still building").into_response())
+}
+
+#[derive(Clone, Copy, Debug)]
+enum PublishKind {
+    NewCrate,
+    NewVersionForExistingCrate,
 }
 
 fn extract_request_body(bytes: &[u8]) -> Result<(Metadata, &[u8]), PublishError> {

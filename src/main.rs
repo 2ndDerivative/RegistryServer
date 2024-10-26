@@ -10,12 +10,15 @@ use axum::{
 };
 use publish::publish_handler;
 use read_only_mutex::ReadOnlyMutex;
+use sqlx::{Database, Pool, Postgres};
 use tokio::net::TcpListener;
 
+mod crate_file;
 mod crate_name;
 mod feature_name;
 mod middleware;
 mod non_empty_strings;
+mod postgres;
 mod publish;
 mod read_only_mutex;
 
@@ -26,6 +29,7 @@ const REPOSITORY_ENV_VARIABLE: &str = "REGISTRY_SERVER_REPOSITORY_PATH";
 #[derive(Clone, Debug)]
 struct ServerState {
     _git_repository_path: Arc<ReadOnlyMutex<PathBuf>>,
+    database_connection_pool: Arc<Pool<Postgres>>,
 }
 
 #[tokio::main]
@@ -35,9 +39,13 @@ async fn main() {
     let tcp_connector = TcpListener::bind(SocketAddr::from((ip_from_env, port_from_env)))
         .await
         .unwrap();
+    let database_connection_pool = Arc::new(
+        Pool::connect_lazy("postgres://registry_server:no_expiry@localhost:5432/cargo_registry").unwrap()
+    );
     let git_repository_from_env = std::env::var(REPOSITORY_ENV_VARIABLE).unwrap();
     let state = ServerState {
         _git_repository_path: Arc::new(ReadOnlyMutex::new(git_repository_from_env.into())),
+        database_connection_pool
     };
     let router: Router = Router::new()
         .route("/api/v1/crates/new", put(publish_handler))
