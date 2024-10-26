@@ -10,7 +10,7 @@ use axum::{
 };
 use publish::publish_handler;
 use read_only_mutex::ReadOnlyMutex;
-use sqlx::{Database, Pool, Postgres};
+use sqlx::{Pool, Postgres};
 use tokio::net::TcpListener;
 
 mod crate_file;
