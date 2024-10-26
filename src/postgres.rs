@@ -24,7 +24,10 @@ pub async fn crate_exists_or_normalized(crate_name: &CrateName, pool: &Pool<Post
 }
 #[derive(Clone, Copy, Debug)]
 pub enum CrateExists {
+    /// Crate matches exactly with name in database
     Yes,
+    /// Crate matches, but is capitalized differently or switches -/_
     NoButNormalized,
+    /// Crate doesn't exist in database
     No
 }
