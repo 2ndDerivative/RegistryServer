@@ -1,4 +1,4 @@
-use sqlx::{Pool, Postgres};
+use sqlx::{Executor, Pool, Postgres};
 
 use crate::{crate_name::CrateName, publish::Metadata};
 
@@ -22,7 +22,7 @@ pub async fn crate_exists_or_normalized(crate_name: &CrateName, pool: &Pool<Post
         Ok(CrateExists::No)
     }
 }
-pub async fn add_crate(metadata: &Metadata, pool: &Pool<Postgres>) -> Result<(), sqlx::Error> {
+pub async fn add_crate(metadata: &Metadata, pool: impl Executor<'_, Database = Postgres>) -> Result<(), sqlx::Error> {
     sqlx::query!("INSERT INTO crates (
         original_name, documentation, homepage,
         readme, readme_file,
