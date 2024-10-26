@@ -24,12 +24,14 @@ pub async fn crate_exists_or_normalized(crate_name: &CrateName, pool: &Pool<Post
 }
 pub async fn add_crate(metadata: &Metadata, pool: impl Executor<'_, Database = Postgres>) -> Result<(), sqlx::Error> {
     sqlx::query!("INSERT INTO crates (
-        original_name, documentation, homepage,
+        original_name, description,
+        documentation, homepage,
         readme, readme_file,
         license, license_file,
         repository, links, rust_version)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         metadata.name.original_str(),
+        metadata.description.as_ref(),
         metadata.documentation,
         metadata.homepage,
         metadata.readme,
