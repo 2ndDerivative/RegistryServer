@@ -5,7 +5,7 @@ use tokio::{fs::{create_dir_all, OpenOptions}, io::{AsyncReadExt, AsyncWriteExt}
 
 use crate::crate_name::CrateName;
 
-const CRATE_BASE_FILE_PATH: &str = "./test_filesystem/download_files/";
+const CRATE_BASE_FILE_PATH: &str = "./target/test_filesystem/download_files/";
 
 fn crate_directory_path(crate_name: &CrateName) -> PathBuf {
     PathBuf::from(CRATE_BASE_FILE_PATH)
