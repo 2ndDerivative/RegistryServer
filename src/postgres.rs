@@ -43,13 +43,11 @@ pub async fn add_crate(metadata: &Metadata, exec: impl Executor<'_, Database = P
     Ok(())
 }
 pub async fn add_keywords(metadata: &Metadata, exec: &mut PgConnection) -> Result<(), sqlx::Error> {
-    for keyword in &metadata.keywords {
-        sqlx::query!("INSERT INTO keywords (crate_id, keyword)
-            VALUES ((SELECT crate_id FROM crates WHERE original_name = $1), $2)",
-            metadata.name.original_str(),
-            keyword.as_ref()
-        ).execute(&mut *exec).await?;
-    }
+    sqlx::query!("INSERT INTO keywords (crate_id, keyword)
+        VALUES ((SELECT crate_id FROM crates WHERE original_name = $1), unnest($2::TEXT[]))",
+        metadata.name.original_str(),
+        &metadata.keywords.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
+    ).execute(&mut *exec).await?;
     Ok(())
 }
 pub async fn delete_keywords(crate_name: &CrateName, exec: &mut PgConnection) -> Result<(), sqlx::Error> {
@@ -63,6 +61,23 @@ pub async fn delete_keywords(crate_name: &CrateName, exec: &mut PgConnection) ->
         .await?;
     Ok(())
 }
+// pub async fn insert_categories(metadata: &Metadata, exec: &mut PgConnection) -> Result<Vec<String>, sqlx::Error> {
+//     sqlx::query!("
+//     WITH valid_inserts AS (
+//         INSERT INTO crate_categories (crate_id, category_id)
+//         SELECT crates.crate_id, valid_categories.category_id
+//         FROM unnest($1::TEXT[]) AS category
+//         JOIN valid_categories ON valid_categories.category_name = category
+//         JOIN crates ON crates.original_name = $2
+//         RETURNING valid_categories.category_name
+//     )
+//     SELECT category
+//     FROM unnest($1::TEXT[]) AS category
+//     LEFT JOIN valid_inserts ON valid_inserts.category_name = category
+//     WHERE valid_inserts.category_name IS NULL;",
+//     metadata.categories.iter().map(|x| x.to_string()).collect::<Vec<()>>(),
+//     metadata.name.original_str())
+// }
 #[derive(Clone, Copy, Debug)]
 pub enum CrateExists {
     /// Crate matches exactly with name in database
