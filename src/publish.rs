@@ -16,7 +16,8 @@ pub async fn publish_handler(
     let (metadata, file_content) = extract_request_body(&body_bytes).map_err(IntoResponse::into_response)?;
     let publish_kind = match crate_exists_or_normalized(&metadata.name, &database_connection_pool)
         .await
-        .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())? {
+        .inspect_err(|e| eprintln!("Failed to check if crate exists: {e}"))
+        .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "couldn't check if crate exists").into_response())? {
         CrateExists::NoButNormalized => return Err((StatusCode::BAD_REQUEST, "Crate exists under different -_ usage or capitalization").into_response()),
         // Add crate to database, assign new owner
         CrateExists::No => PublishKind::NewCrate,
