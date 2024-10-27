@@ -25,6 +25,7 @@ mod read_only_mutex;
 const IP_ENV_VARIABLE: &str = "REGISTRY_SERVER_IP";
 const PORT_ENV_VARIABLE: &str = "REGISTRY_SERVER_PORT";
 const REPOSITORY_ENV_VARIABLE: &str = "REGISTRY_SERVER_REPOSITORY_PATH";
+const POSTGRES_CONNECTION_STRING_VAR: &str = "REGISTRY_SERVER_DATABASE_URL";
 
 #[derive(Clone, Debug)]
 struct ServerState {
@@ -36,11 +37,12 @@ struct ServerState {
 async fn main() {
     let ip_from_env: IpAddr = std::env::var(IP_ENV_VARIABLE).unwrap().parse().unwrap();
     let port_from_env: u16 = std::env::var(PORT_ENV_VARIABLE).unwrap().parse().unwrap();
+    let database_url_from_env = std::env::var(POSTGRES_CONNECTION_STRING_VAR).unwrap();
     let tcp_connector = TcpListener::bind(SocketAddr::from((ip_from_env, port_from_env)))
         .await
         .unwrap();
     let database_connection_pool = Arc::new(
-        Pool::connect_lazy("postgres://registry_server:no_expiry@localhost:5432/cargo_registry").unwrap()
+        Pool::connect_lazy(&database_url_from_env).unwrap()
     );
     let git_repository_from_env = std::env::var(REPOSITORY_ENV_VARIABLE).unwrap();
     let state = ServerState {
