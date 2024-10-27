@@ -28,8 +28,8 @@ pub async fn add_crate(metadata: &Metadata, exec: impl Executor<'_, Database = P
         documentation, homepage,
         readme, readme_file,
         license, license_file,
-        repository, links, rust_version)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+        repository)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
         metadata.name.original_str(),
         metadata.description.as_ref(),
         metadata.documentation,
@@ -39,8 +39,6 @@ pub async fn add_crate(metadata: &Metadata, exec: impl Executor<'_, Database = P
         metadata.license,
         metadata.license_file,
         metadata.repository,
-        metadata.links,
-        metadata.rust_version
     ).execute(exec).await?;
     Ok(())
 }
