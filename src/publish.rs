@@ -12,7 +12,7 @@ pub async fn publish_handler(
 ) -> Result<Json<PublishWarnings>, Response> {
     let body_bytes = to_bytes(body, usize::MAX)
         .await
-        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE.into_response())?;
+        .map_err(|_| (StatusCode::PAYLOAD_TOO_LARGE, "payload too large").into_response())?;
     let (metadata, file_content) = extract_request_body(&body_bytes).map_err(IntoResponse::into_response)?;
     let publish_kind = match crate_exists_or_normalized(&metadata.name, &database_connection_pool)
         .await
@@ -30,7 +30,7 @@ pub async fn publish_handler(
     match publish_kind {
         PublishKind::NewCrate => add_crate(&metadata, &mut *transaction)
             .await
-            .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?,
+            .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "adding crate to db failed").into_response())?,
         PublishKind::NewVersionForExistingCrate => {}
     };
     add_keywords(&metadata, &mut transaction)
@@ -43,7 +43,7 @@ pub async fn publish_handler(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?;
     transaction.commit()
         .await
-        .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+        .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "committing to database failed").into_response())?;
     Err((StatusCode::SERVICE_UNAVAILABLE, "still building").into_response())
 }
 #[derive(Debug, Serialize)]
