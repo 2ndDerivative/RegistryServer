@@ -4,7 +4,7 @@ use axum::{body::{to_bytes, Body}, extract::State, http::StatusCode, response::{
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
-use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{add_crate, add_keywords, crate_exists_or_normalized, CrateExists}, ServerState};
+use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{add_crate, add_keywords, crate_exists_or_normalized, delete_keywords, CrateExists}, ServerState};
 
 pub async fn publish_handler(
     State(ServerState { database_connection_pool, ..}): State<ServerState>,
@@ -31,7 +31,13 @@ pub async fn publish_handler(
         PublishKind::NewCrate => add_crate(&metadata, &mut *transaction)
             .await
             .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "adding crate to db failed").into_response())?,
-        PublishKind::NewVersionForExistingCrate => {}
+        PublishKind::NewVersionForExistingCrate => {
+            // TODO Check if it's a newer version
+            delete_keywords(&metadata.name, &mut transaction)
+                .await
+                .inspect_err(|e| eprintln!("Deleting keywords failed: {e}"))
+                .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "removing old keywords failed").into_response())?;
+        }
     };
     add_keywords(&metadata, &mut transaction)
         .await
