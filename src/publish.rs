@@ -4,7 +4,7 @@ use axum::{body::{to_bytes, Body}, extract::State, http::StatusCode, response::{
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
-use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{add_crate, crate_exists_or_normalized, CrateExists}, ServerState};
+use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{add_crate, add_keywords, crate_exists_or_normalized, CrateExists}, ServerState};
 
 pub async fn publish_handler(
     State(ServerState { database_connection_pool, ..}): State<ServerState>,
@@ -33,6 +33,10 @@ pub async fn publish_handler(
             .map_err(|_e| StatusCode::INTERNAL_SERVER_ERROR.into_response())?,
         PublishKind::NewVersionForExistingCrate => {}
     };
+    add_keywords(&metadata, &mut transaction)
+        .await
+        .inspect_err(|e| eprintln!("Couldn't insert keywords: {e}"))
+        .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't add keywords").into_response())?;
     eprintln!("{metadata:#?}");
     create_crate_file(file_content, metadata.vers, &metadata.name)
         .await
