@@ -1,10 +1,10 @@
-use std::{collections::BTreeMap, fmt::{Display, Formatter, Result as FmtResult}};
+use std::{collections::{BTreeMap, HashSet}, fmt::{Display, Formatter, Result as FmtResult}};
 
 use axum::{body::{to_bytes, Body}, extract::State, http::StatusCode, response::{IntoResponse, Response}, Json};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
-use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{add_crate, add_keywords, crate_exists_or_normalized, delete_keywords, CrateExists}, ServerState};
+use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{add_crate, add_keywords, crate_exists_or_normalized, delete_keywords, get_bad_categories, insert_categories, CrateExists}, ServerState};
 
 pub async fn publish_handler(
     State(ServerState { database_connection_pool, ..}): State<ServerState>,
@@ -40,6 +40,19 @@ pub async fn publish_handler(
         },
         PublishKind::OldVersionForExistingCrate => {}
     };
+    let invalid_categories = get_bad_categories(&metadata, &mut transaction)
+        .await
+        .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to check categories").into_response())?;
+    eprintln!("{invalid_categories:#?}");
+    insert_categories(
+        metadata
+        .categories
+        .difference(&invalid_categories)
+        .cloned()
+        .collect(),
+        &metadata.name,
+        &mut transaction
+    ).await.map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to insert categories").into_response())?;
     add_keywords(&metadata, &mut transaction)
         .await
         .inspect_err(|e| eprintln!("Couldn't insert keywords: {e}"))
@@ -132,9 +145,9 @@ pub struct Metadata {
     pub(crate) readme: Option<String>,
     pub(crate) readme_file: Option<String>,
     /// Free user-controlled strings, should maybe be restricted to be non-empty
-    pub(crate) keywords: Vec<Keyword>,
+    pub(crate) keywords: HashSet<Keyword>,
     /// Categories the server may choose. should probably be matched to a database or sth
-    pub(crate) categories: Vec<String>,
+    pub(crate) categories: HashSet<String>,
     /// NAME of the license
     pub(crate) license: Option<String>,
     /// FILE WITH CONTENT of the license

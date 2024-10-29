@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use sqlx::{Executor, PgConnection, Pool, Postgres};
 
 use crate::{crate_name::CrateName, publish::Metadata};
@@ -61,23 +63,29 @@ pub async fn delete_keywords(crate_name: &CrateName, exec: &mut PgConnection) ->
         .await?;
     Ok(())
 }
-// pub async fn insert_categories(metadata: &Metadata, exec: &mut PgConnection) -> Result<Vec<String>, sqlx::Error> {
-//     sqlx::query!("
-//     WITH valid_inserts AS (
-//         INSERT INTO crate_categories (crate_id, category_id)
-//         SELECT crates.crate_id, valid_categories.category_id
-//         FROM unnest($1::TEXT[]) AS category
-//         JOIN valid_categories ON valid_categories.category_name = category
-//         JOIN crates ON crates.original_name = $2
-//         RETURNING valid_categories.category_name
-//     )
-//     SELECT category
-//     FROM unnest($1::TEXT[]) AS category
-//     LEFT JOIN valid_inserts ON valid_inserts.category_name = category
-//     WHERE valid_inserts.category_name IS NULL;",
-//     metadata.categories.iter().map(|x| x.to_string()).collect::<Vec<()>>(),
-//     metadata.name.original_str())
-// }
+pub async fn insert_categories(categories: HashSet<String>, crate_name: &CrateName, exec: &mut PgConnection) -> Result<(), sqlx::Error> {
+    sqlx::query!("INSERT INTO crate_categories (crate_id, category_id)
+        SELECT crates.crate_id, valid_categories.category_id
+        FROM crates
+        JOIN valid_categories ON valid_categories.category_name = ANY($1::TEXT[])
+        WHERE crates.original_name = $2", &categories.into_iter().collect::<Vec<_>>(), crate_name.original_str())
+        .execute(&mut *exec)
+        .await?;
+    Ok(())
+}
+pub async fn get_bad_categories(metadata: &Metadata, exec: &mut PgConnection) -> Result<HashSet<String>, sqlx::Error> {
+    sqlx::query!("SELECT category
+        FROM unnest($1::TEXT[]) AS category
+        LEFT JOIN valid_categories ON valid_categories.category_name = category
+        WHERE valid_categories.category_name IS NULL", 
+        &metadata.categories.iter().cloned().collect::<Vec<_>>())
+        .fetch_all(exec)
+        .await
+        .map(|records| records
+            .into_iter()
+            .map(|x| x.category.unwrap())
+            .collect())
+}
 #[derive(Clone, Copy, Debug)]
 pub enum CrateExists {
     /// Crate matches exactly with name in database
