@@ -3,6 +3,7 @@ use std::{collections::{BTreeMap, HashSet}, fmt::{Display, Formatter, Result as 
 use axum::{body::{to_bytes, Body}, extract::State, http::StatusCode, response::{IntoResponse, Response}, Json};
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
+use sqlx::{Postgres, Transaction};
 
 use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{add_crate, add_keywords, crate_exists_or_normalized, delete_category_entries, delete_keywords, get_bad_categories, insert_categories, CrateExists}, ServerState};
 
@@ -10,6 +11,7 @@ pub async fn publish_handler(
     State(ServerState { database_connection_pool, ..}): State<ServerState>,
     body: Body
 ) -> Result<Json<PublishWarnings>, Response> {
+    let mut other_warnings = Vec::new();
     let body_bytes = to_bytes(body, usize::MAX)
         .await
         .map_err(|_| (StatusCode::PAYLOAD_TOO_LARGE, "payload too large").into_response())?;
@@ -17,7 +19,7 @@ pub async fn publish_handler(
     let publish_kind = match crate_exists_or_normalized(&metadata.name, &database_connection_pool)
         .await
         .inspect_err(|e| eprintln!("Failed to check if crate exists: {e}"))
-        .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "couldn't check if crate exists").into_response())? {
+        .map_err(|_e| internal_server_error("couldn't check if crate exists"))? {
         CrateExists::NoButNormalized => return Err((StatusCode::BAD_REQUEST, "Crate exists under different -_ usage or capitalization").into_response()),
         // Add crate to database, assign new owner
         CrateExists::No => PublishKind::NewCrate,
@@ -27,27 +29,51 @@ pub async fn publish_handler(
     };
     let mut transaction = database_connection_pool.begin()
         .await
-        .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "couldn't start transaction").into_response())?;
+        .map_err(|_e| internal_server_error("couldn't start transaction"))?;
+    let mut invalid_categories = Vec::new();
     match publish_kind {
-        PublishKind::NewCrate => add_crate(&metadata, &mut *transaction)
-            .await
-            .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "adding crate to db failed").into_response())?,
+        // Clean adding of new crate possible
+        PublishKind::NewCrate => {
+            add_crate(&metadata, &mut *transaction)
+                .await
+                .map_err(|_e| internal_server_error("adding crate to db failed"))?;
+            invalid_categories.extend(add_keywords_and_categories(&metadata, &mut transaction).await?);
+        },
+        // Old categories need to be deleted before
         PublishKind::NewVersionForExistingCrate => {
             delete_keywords(&metadata.name, &mut transaction)
                 .await
                 .inspect_err(|e| eprintln!("Deleting keywords failed: {e}"))
-                .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "removing old keywords failed").into_response())?;
+                .map_err(|_e| internal_server_error("removing old keywords failed"))?;
             delete_category_entries(&metadata.name, &mut transaction)
                 .await
                 .inspect_err(|e| eprintln!("Deleting category entries failed: {e}"))
-                .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "removing old categories failed").into_response())?;
+                .map_err(|_e| internal_server_error("removing old categories failed"))?;
+            invalid_categories.extend(add_keywords_and_categories(&metadata, &mut transaction).await?);
         },
-        PublishKind::OldVersionForExistingCrate => {}
+        // Categories and keywords are ignored
+        PublishKind::OldVersionForExistingCrate => {
+            other_warnings.push(String::from("Newer version for this crate is already in the registry. Categories and keywords will not be overwritten."));
+        }
     };
-    let invalid_categories = get_bad_categories(&metadata, &mut transaction)
+    eprintln!("Invalid categories: {invalid_categories:#?}");
+    create_crate_file(file_content, metadata.vers, &metadata.name)
         .await
-        .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to check categories").into_response())?;
-    eprintln!("{invalid_categories:#?}");
+        .map_err(|e| internal_server_error(e.to_string()))?;
+    transaction.commit()
+        .await
+        .map_err(|_e| internal_server_error("committing to database failed"))?;
+    Err((StatusCode::SERVICE_UNAVAILABLE, "still building").into_response())
+}
+
+fn internal_server_error(s: impl Into<String>) -> Response {
+    (StatusCode::INTERNAL_SERVER_ERROR, s.into()).into_response()
+}
+
+async fn add_keywords_and_categories(metadata: &Metadata, transaction: &mut Transaction<'_, Postgres>) -> Result<HashSet<String>, Response> {
+    let invalid_categories = get_bad_categories(metadata, transaction)
+        .await
+        .map_err(|_e| internal_server_error("Failed to check categories"))?;
     insert_categories(
         metadata
         .categories
@@ -55,26 +81,19 @@ pub async fn publish_handler(
         .cloned()
         .collect(),
         &metadata.name,
-        &mut transaction
-    ).await.map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to insert categories").into_response())?;
-    add_keywords(&metadata, &mut transaction)
+        transaction
+    ).await.map_err(|_e| internal_server_error("Failed to insert categories"))?;
+    add_keywords(metadata, transaction)
         .await
         .inspect_err(|e| eprintln!("Couldn't insert keywords: {e}"))
-        .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "Couldn't add keywords").into_response())?;
-    eprintln!("{metadata:#?}");
-    create_crate_file(file_content, metadata.vers, &metadata.name)
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response())?;
-    transaction.commit()
-        .await
-        .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "committing to database failed").into_response())?;
-    Err((StatusCode::SERVICE_UNAVAILABLE, "still building").into_response())
+        .map_err(|_e| internal_server_error("Couldn't add keywords"))?;
+    Ok(invalid_categories)
 }
 #[derive(Debug, Serialize)]
 pub struct SuccessfulPublish {
     warnings: PublishWarnings
 }
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct PublishWarnings {
     invalid_categories: Vec<String>,
     invalid_badges: Vec<String>,
