@@ -4,7 +4,7 @@ use axum::{body::{to_bytes, Body}, extract::State, http::StatusCode, response::{
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 
-use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{add_crate, add_keywords, crate_exists_or_normalized, delete_keywords, get_bad_categories, insert_categories, CrateExists}, ServerState};
+use crate::{crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, non_empty_strings::{Description, Keyword}, postgres::{add_crate, add_keywords, crate_exists_or_normalized, delete_category_entries, delete_keywords, get_bad_categories, insert_categories, CrateExists}, ServerState};
 
 pub async fn publish_handler(
     State(ServerState { database_connection_pool, ..}): State<ServerState>,
@@ -37,6 +37,10 @@ pub async fn publish_handler(
                 .await
                 .inspect_err(|e| eprintln!("Deleting keywords failed: {e}"))
                 .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "removing old keywords failed").into_response())?;
+            delete_category_entries(&metadata.name, &mut transaction)
+                .await
+                .inspect_err(|e| eprintln!("Deleting category entries failed: {e}"))
+                .map_err(|_e| (StatusCode::INTERNAL_SERVER_ERROR, "removing old categories failed").into_response())?;
         },
         PublishKind::OldVersionForExistingCrate => {}
     };

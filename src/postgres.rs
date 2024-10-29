@@ -83,8 +83,17 @@ pub async fn get_bad_categories(metadata: &Metadata, exec: &mut PgConnection) ->
         .await
         .map(|records| records
             .into_iter()
-            .map(|x| x.category.unwrap())
+            .map(|x| x.category.expect("should not come out NULL"))
             .collect())
+}
+pub async fn delete_category_entries(crate_name: &CrateName, exec: &mut PgConnection) -> Result<(), sqlx::Error> {
+    sqlx::query!("DELETE FROM
+        crate_categories
+        WHERE crate_id
+        IN (SELECT crate_id FROM crates WHERE original_name = $1)", crate_name.original_str())
+        .execute(exec)
+        .await?;
+    Ok(())
 }
 #[derive(Clone, Copy, Debug)]
 pub enum CrateExists {
