@@ -1,5 +1,5 @@
-use std::fmt::Display;
 use serde::de::Unexpected;
+use std::fmt::Display;
 
 macro_rules! non_empty_string {
     ($type:ident) => {
@@ -24,10 +24,12 @@ macro_rules! non_empty_string {
         }
         impl<'de> serde::Deserialize<'de> for $type {
             fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-                where
-                    D: serde::Deserializer<'de> {
-                Self::new(String::deserialize(deserializer)?)
-                    .ok_or_else(|| serde::de::Error::invalid_value(Unexpected::Str(""), &"non-empty string"))
+            where
+                D: serde::Deserializer<'de>,
+            {
+                Self::new(String::deserialize(deserializer)?).ok_or_else(|| {
+                    serde::de::Error::invalid_value(Unexpected::Str(""), &"non-empty string")
+                })
             }
         }
         impl Display for $type {

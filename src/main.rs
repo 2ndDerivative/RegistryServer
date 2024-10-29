@@ -4,10 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use axum::{
-    routing::put,
-    Router,
-};
+use axum::{routing::put, Router};
 use publish::publish_handler;
 use read_only_mutex::ReadOnlyMutex;
 use sqlx::{Pool, Postgres};
@@ -41,13 +38,11 @@ async fn main() {
     let tcp_connector = TcpListener::bind(SocketAddr::from((ip_from_env, port_from_env)))
         .await
         .unwrap();
-    let database_connection_pool = Arc::new(
-        Pool::connect_lazy(&database_url_from_env).unwrap()
-    );
+    let database_connection_pool = Arc::new(Pool::connect_lazy(&database_url_from_env).unwrap());
     let git_repository_from_env = std::env::var(REPOSITORY_ENV_VARIABLE).unwrap();
     let state = ServerState {
         _git_repository_path: Arc::new(ReadOnlyMutex::new(git_repository_from_env.into())),
-        database_connection_pool
+        database_connection_pool,
     };
     let router: Router = Router::new()
         .route("/api/v1/crates/new", put(publish_handler))

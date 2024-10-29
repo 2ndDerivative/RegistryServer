@@ -49,7 +49,7 @@ impl FromStr for CrateName {
     type Err = InvalidCrateName;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if is_reserved_file_name(&s.to_ascii_uppercase()) {
-            return Err(InvalidCrateName::IsReservedFileName)
+            return Err(InvalidCrateName::IsReservedFileName);
         }
         let mut chars = s.chars();
         match chars.next() {
@@ -105,13 +105,39 @@ impl std::fmt::Display for InvalidCrateName {
 }
 
 fn is_reserved_file_name(s: &str) -> bool {
-    matches!(s, "CON" | "PRN" | "AUX" | "NUL"
-        | "COM0" | "COM1" | "COM2" | "COM3" | "COM4"
-        | "COM5" | "COM6" | "COM7" | "COM8" | "COM9"
-        | "COM¹" | "COM²" | "COM³"
-        | "LPT0" | "LPT1" | "LPT2" | "LPT3" | "LPT4"
-        | "LPT5" | "LPT6" | "LPT7" | "LPT8" | "LPT9"
-        | "LPT¹" | "LPT²" | "LPT³")
+    matches!(
+        s,
+        "CON"
+            | "PRN"
+            | "AUX"
+            | "NUL"
+            | "COM0"
+            | "COM1"
+            | "COM2"
+            | "COM3"
+            | "COM4"
+            | "COM5"
+            | "COM6"
+            | "COM7"
+            | "COM8"
+            | "COM9"
+            | "COM¹"
+            | "COM²"
+            | "COM³"
+            | "LPT0"
+            | "LPT1"
+            | "LPT2"
+            | "LPT3"
+            | "LPT4"
+            | "LPT5"
+            | "LPT6"
+            | "LPT7"
+            | "LPT8"
+            | "LPT9"
+            | "LPT¹"
+            | "LPT²"
+            | "LPT³"
+    )
 }
 
 #[cfg(test)]
@@ -122,7 +148,10 @@ mod tests {
 
     #[test]
     fn disallow_lowercase_aux() {
-        assert_eq!(CrateName::from_str("nul"), Err(InvalidCrateName::IsReservedFileName));
+        assert_eq!(
+            CrateName::from_str("nul"),
+            Err(InvalidCrateName::IsReservedFileName)
+        );
     }
     #[test]
     fn disallow_empty() {
@@ -130,6 +159,9 @@ mod tests {
     }
     #[test]
     fn disallow_emoji() {
-        assert_eq!(CrateName::from_str("❤️"), Err(InvalidCrateName::FirstLetterNotUXID));
+        assert_eq!(
+            CrateName::from_str("❤️"),
+            Err(InvalidCrateName::FirstLetterNotUXID)
+        );
     }
 }

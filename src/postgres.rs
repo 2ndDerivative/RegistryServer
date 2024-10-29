@@ -4,28 +4,44 @@ use sqlx::{Executor, PgConnection, Pool, Postgres};
 
 use crate::{crate_name::CrateName, publish::Metadata};
 
-pub async fn crate_exists_exact(crate_name: &CrateName, pool: &Pool<Postgres>) -> Result<bool, sqlx::Error> {
-    let res = sqlx::query!("SELECT EXISTS(SELECT crate_id, original_name FROM crates WHERE original_name = $1)", crate_name.original_str())
-        .fetch_one(pool)
-        .await?;
+pub async fn crate_exists_exact(
+    crate_name: &CrateName,
+    pool: &Pool<Postgres>,
+) -> Result<bool, sqlx::Error> {
+    let res = sqlx::query!(
+        "SELECT EXISTS(SELECT crate_id, original_name FROM crates WHERE original_name = $1)",
+        crate_name.original_str()
+    )
+    .fetch_one(pool)
+    .await?;
     Ok(res.exists.unwrap())
 }
-pub async fn crate_exists_or_normalized(crate_name: &CrateName, pool: &Pool<Postgres>) -> Result<CrateExists, sqlx::Error> {
+pub async fn crate_exists_or_normalized(
+    crate_name: &CrateName,
+    pool: &Pool<Postgres>,
+) -> Result<CrateExists, sqlx::Error> {
     if crate_exists_exact(crate_name, pool).await? {
-        return Ok(CrateExists::Yes)
+        return Ok(CrateExists::Yes);
     }
-    let res_normalized = sqlx::query!("SELECT EXISTS(SELECT crate_id, original_name FROM crates
-        WHERE normalize_crate_name(original_name) = $1)", crate_name.normalized())
-        .fetch_one(pool)
-        .await?;
+    let res_normalized = sqlx::query!(
+        "SELECT EXISTS(SELECT crate_id, original_name FROM crates
+        WHERE normalize_crate_name(original_name) = $1)",
+        crate_name.normalized()
+    )
+    .fetch_one(pool)
+    .await?;
     if res_normalized.exists.unwrap() {
         Ok(CrateExists::NoButNormalized)
     } else {
         Ok(CrateExists::No)
     }
 }
-pub async fn add_crate(metadata: &Metadata, exec: impl Executor<'_, Database = Postgres>) -> Result<(), sqlx::Error> {
-    sqlx::query!("INSERT INTO crates (
+pub async fn add_crate(
+    metadata: &Metadata,
+    exec: impl Executor<'_, Database = Postgres>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "INSERT INTO crates (
         original_name, description,
         documentation, homepage,
         readme, readme_file,
@@ -41,58 +57,91 @@ pub async fn add_crate(metadata: &Metadata, exec: impl Executor<'_, Database = P
         metadata.license,
         metadata.license_file,
         metadata.repository,
-    ).execute(exec).await?;
+    )
+    .execute(exec)
+    .await?;
     Ok(())
 }
 pub async fn add_keywords(metadata: &Metadata, exec: &mut PgConnection) -> Result<(), sqlx::Error> {
-    sqlx::query!("INSERT INTO keywords (crate_id, keyword)
+    sqlx::query!(
+        "INSERT INTO keywords (crate_id, keyword)
         VALUES ((SELECT crate_id FROM crates WHERE original_name = $1), unnest($2::TEXT[]))",
         metadata.name.original_str(),
-        &metadata.keywords.iter().map(|x| x.to_string()).collect::<Vec<_>>(),
-    ).execute(&mut *exec).await?;
+        &metadata
+            .keywords
+            .iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>(),
+    )
+    .execute(&mut *exec)
+    .await?;
     Ok(())
 }
-pub async fn delete_keywords(crate_name: &CrateName, exec: &mut PgConnection) -> Result<(), sqlx::Error> {
+pub async fn delete_keywords(
+    crate_name: &CrateName,
+    exec: &mut PgConnection,
+) -> Result<(), sqlx::Error> {
     sqlx::query!(
         "DELETE FROM keywords
         WHERE crate_id
         IN (SELECT crate_id FROM crates WHERE original_name = $1)",
         crate_name.original_str()
     )
-        .execute(exec)
-        .await?;
+    .execute(exec)
+    .await?;
     Ok(())
 }
-pub async fn insert_categories(categories: HashSet<String>, crate_name: &CrateName, exec: &mut PgConnection) -> Result<(), sqlx::Error> {
-    sqlx::query!("INSERT INTO crate_categories (crate_id, category_id)
+pub async fn insert_categories(
+    categories: HashSet<String>,
+    crate_name: &CrateName,
+    exec: &mut PgConnection,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "INSERT INTO crate_categories (crate_id, category_id)
         SELECT crates.crate_id, valid_categories.category_id
         FROM crates
         JOIN valid_categories ON valid_categories.category_name = ANY($1::TEXT[])
-        WHERE crates.original_name = $2", &categories.into_iter().collect::<Vec<_>>(), crate_name.original_str())
-        .execute(&mut *exec)
-        .await?;
+        WHERE crates.original_name = $2",
+        &categories.into_iter().collect::<Vec<_>>(),
+        crate_name.original_str()
+    )
+    .execute(&mut *exec)
+    .await?;
     Ok(())
 }
-pub async fn get_bad_categories(metadata: &Metadata, exec: &mut PgConnection) -> Result<HashSet<String>, sqlx::Error> {
-    sqlx::query!("SELECT category
+pub async fn get_bad_categories(
+    metadata: &Metadata,
+    exec: &mut PgConnection,
+) -> Result<HashSet<String>, sqlx::Error> {
+    sqlx::query!(
+        "SELECT category
         FROM unnest($1::TEXT[]) AS category
         LEFT JOIN valid_categories ON valid_categories.category_name = category
-        WHERE valid_categories.category_name IS NULL", 
-        &metadata.categories.iter().cloned().collect::<Vec<_>>())
-        .fetch_all(exec)
-        .await
-        .map(|records| records
+        WHERE valid_categories.category_name IS NULL",
+        &metadata.categories.iter().cloned().collect::<Vec<_>>()
+    )
+    .fetch_all(exec)
+    .await
+    .map(|records| {
+        records
             .into_iter()
             .map(|x| x.category.expect("should not come out NULL"))
-            .collect())
+            .collect()
+    })
 }
-pub async fn delete_category_entries(crate_name: &CrateName, exec: &mut PgConnection) -> Result<(), sqlx::Error> {
-    sqlx::query!("DELETE FROM
+pub async fn delete_category_entries(
+    crate_name: &CrateName,
+    exec: &mut PgConnection,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "DELETE FROM
         crate_categories
         WHERE crate_id
-        IN (SELECT crate_id FROM crates WHERE original_name = $1)", crate_name.original_str())
-        .execute(exec)
-        .await?;
+        IN (SELECT crate_id FROM crates WHERE original_name = $1)",
+        crate_name.original_str()
+    )
+    .execute(exec)
+    .await?;
     Ok(())
 }
 #[derive(Clone, Copy, Debug)]
@@ -102,5 +151,5 @@ pub enum CrateExists {
     /// Crate matches, but is capitalized differently or switches -/_
     NoButNormalized,
     /// Crate doesn't exist in database
-    No
+    No,
 }
