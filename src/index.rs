@@ -2,13 +2,16 @@ use std::{fmt::Display, path::{Path, PathBuf}};
 
 use tokio::{fs::{create_dir_all, OpenOptions}, io::AsyncWriteExt, process::Command};
 
-use crate::{read_only_mutex::ReadOnlyMutex, version::VersionMetadata};
+use crate::{publish::Metadata, read_only_mutex::ReadOnlyMutex};
+use json::{build_version_metadata, VersionMetadata};
+mod json;
 
-pub async fn add_file_to_index(version_metadata: &VersionMetadata, repository: &ReadOnlyMutex<PathBuf>) -> Result<(), AddToIndexError> {
+pub async fn add_file_to_index(crate_metadata: &Metadata, file_content: &[u8], repository: &ReadOnlyMutex<PathBuf>) -> Result<(), AddToIndexError> {
+    let version_metadata = build_version_metadata(crate_metadata, file_content);
     let repository = repository.lock().await;
-    add_version_to_index_file(version_metadata, &repository).await?;
+    add_version_to_index_file(&version_metadata, &repository).await?;
     let commit_message = format!("ADD CRATE: [{}] version: {}", version_metadata.name.original_str(), version_metadata.vers);
-    commit_to_index(&repository, &index_file_path(version_metadata, &repository), &commit_message).await.unwrap();
+    commit_to_index(&repository, &index_file_path(&version_metadata, &repository), &commit_message).await.unwrap();
     Ok(())
 }
 #[derive(Debug)]

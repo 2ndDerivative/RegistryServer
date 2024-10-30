@@ -12,12 +12,13 @@ use axum::{
 };
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
 
 use crate::{
     crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, index::add_file_to_index, non_empty_strings::{Description, Keyword}, postgres::{
         add_crate, add_keywords, add_version, crate_exists_or_normalized, delete_category_entries, delete_keywords, get_bad_categories, insert_categories, CrateExists
-    }, version::{build_version_metadata, RustVersionReq}, ServerState
+    }, ServerState
 };
 
 pub async fn publish_handler(
@@ -43,7 +44,11 @@ pub async fn publish_handler(
         CrateExists::No => PublishKind::NewCrate,
         // Check if person is owner, if newer version update crate data
         // TODO Check if it's a newer version
-        CrateExists::Yes => PublishKind::NewVersionForExistingCrate,
+        CrateExists::Yes => if todo!("incoming version is newest") {
+            PublishKind::NewVersionForExistingCrate
+        } else {
+            PublishKind::OldVersionForExistingCrate
+        },
     };
     let mut transaction = database_connection_pool
         .begin()
@@ -80,12 +85,12 @@ pub async fn publish_handler(
     create_crate_file(file_content, crate_metadata.vers.clone(), &crate_metadata.name)
         .await
         .map_err(|e| internal_server_error(e.to_string()))?;
-    let version_metadata = build_version_metadata(&crate_metadata, file_content);
-    add_version(&version_metadata, &crate_metadata.authors, &mut transaction)
+    let cksum = hash_file_content(file_content);
+    add_version(&crate_metadata, &cksum, &mut transaction)
         .await
         .inspect_err(|e| eprintln!("failed to add crate version to db: {e}"))
         .map_err(|_e| internal_server_error("failed to add crate version to database"))?;
-    if let Err(e) = add_file_to_index(&version_metadata, &git_repository_path).await {
+    if let Err(e) = add_file_to_index(&crate_metadata, file_content, &git_repository_path).await {
         eprintln!("Failed to add file to index: {e}");
         return Err(internal_server_error("failed to add file to index"))
     };
@@ -100,6 +105,13 @@ pub async fn publish_handler(
             other: other_warnings
         }
     }))
+}
+
+fn hash_file_content(file: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(file);
+    let hash_res = hasher.finalize();
+    format!("{hash_res:x}")
 }
 
 async fn add_keywords_and_categories(
@@ -246,4 +258,33 @@ pub enum DependencyKind {
     Dev,
     Build,
     Normal,
+}
+
+#[derive(Clone, Debug, Serialize)]
+/// A semver version requirement without comparators
+pub struct RustVersionReq(VersionReq);
+impl RustVersionReq {
+    pub fn new(v: VersionReq) -> Option<Self> {
+        if v.comparators.is_empty() {
+            None
+        } else {
+            Some(Self(v))
+        }
+    }
+}
+impl<'de> Deserialize<'de> for RustVersionReq {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+        where
+            D: serde::Deserializer<'de> {
+        let vr = VersionReq::deserialize(deserializer)?;
+        match Self::new(vr) {
+            Some(rv) => Ok(rv),
+            None => Err(serde::de::Error::custom("rust version requirement can't have comparators")),
+        }
+    }
+}
+impl Display for RustVersionReq {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
 }

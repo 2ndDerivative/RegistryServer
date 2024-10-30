@@ -23,7 +23,6 @@ mod non_empty_strings;
 mod postgres;
 mod publish;
 mod read_only_mutex;
-mod version;
 
 const IP_ENV_VARIABLE: &str = "REGISTRY_SERVER_IP";
 const PORT_ENV_VARIABLE: &str = "REGISTRY_SERVER_PORT";

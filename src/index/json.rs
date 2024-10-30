@@ -1,10 +1,10 @@
-use std::{collections::BTreeMap, fmt::Display};
+use std::collections::BTreeMap;
 
 use semver::{Version, VersionReq};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::{crate_name::CrateName, feature_name::FeatureName, publish::{self, DependencyKind, Metadata}};
+use crate::{crate_name::CrateName, feature_name::FeatureName, publish::{self, DependencyKind, Metadata, RustVersionReq}};
 
 pub fn build_version_metadata(metadata: &Metadata, crate_file: &[u8]) -> VersionMetadata {
     let mut hasher = Sha256::new();
@@ -66,33 +66,4 @@ pub struct VersionDependencyMetadata {
     pub(crate) kind: DependencyKind,
     pub(crate) registry: Option<String>,
     pub(crate) package: Option<CrateName>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-/// A semver version requirement without comparators
-pub struct RustVersionReq(VersionReq);
-impl RustVersionReq {
-    pub fn new(v: VersionReq) -> Option<Self> {
-        if v.comparators.is_empty() {
-            None
-        } else {
-            Some(Self(v))
-        }
-    }
-}
-impl<'de> Deserialize<'de> for RustVersionReq {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de> {
-        let vr = VersionReq::deserialize(deserializer)?;
-        match Self::new(vr) {
-            Some(rv) => Ok(rv),
-            None => Err(serde::de::Error::custom("rust version requirement can't have comparators")),
-        }
-    }
-}
-impl Display for RustVersionReq {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
-    }
 }
