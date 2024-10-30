@@ -17,7 +17,7 @@ use sqlx::{Postgres, Transaction};
 
 use crate::{
     crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, index::add_file_to_index, non_empty_strings::{Description, Keyword}, postgres::{
-        add_crate, add_keywords, add_version, crate_exists_or_normalized, delete_category_entries, delete_keywords, get_bad_categories, insert_categories, CrateExists
+        add_crate, add_keywords, add_version, crate_exists_or_normalized, delete_category_entries, delete_keywords, get_bad_categories, get_versions, insert_categories, CrateExists
     }, ServerState
 };
 
@@ -34,7 +34,11 @@ pub async fn publish_handler(
         .map_err(|_| (StatusCode::PAYLOAD_TOO_LARGE, "payload too large").into_response())?;
     let (crate_metadata, file_content) =
         extract_request_body(&body_bytes).map_err(IntoResponse::into_response)?;
-    let publish_kind = match crate_exists_or_normalized(&crate_metadata.name, &database_connection_pool)
+    let mut transaction = database_connection_pool
+    .begin()
+    .await
+    .map_err(|_e| internal_server_error("couldn't start transaction"))?;
+    let publish_kind = match crate_exists_or_normalized(&crate_metadata.name, &mut transaction)
         .await
         .inspect_err(|e| eprintln!("Failed to check if crate exists: {e}"))
         .map_err(|_e| internal_server_error("couldn't check if crate exists"))?
@@ -44,16 +48,20 @@ pub async fn publish_handler(
         CrateExists::No => PublishKind::NewCrate,
         // Check if person is owner, if newer version update crate data
         // TODO Check if it's a newer version
-        CrateExists::Yes => if todo!("incoming version is newest") {
-            PublishKind::NewVersionForExistingCrate
-        } else {
-            PublishKind::OldVersionForExistingCrate
+        CrateExists::Yes => {
+            let max = get_versions(&crate_metadata.name, &mut transaction)
+                .await
+                .map_err(|_e| internal_server_error("cannot get versions of crate"))?
+                .into_iter()
+                .max();
+            if max.is_none_or(|max| max < crate_metadata.vers) {
+                PublishKind::NewVersionForExistingCrate
+            } else {
+                PublishKind::OldVersionForExistingCrate
+            }
         },
     };
-    let mut transaction = database_connection_pool
-        .begin()
-        .await
-        .map_err(|_e| internal_server_error("couldn't start transaction"))?;
+
     let mut invalid_categories = Vec::new();
     match publish_kind {
         // Clean adding of new crate possible

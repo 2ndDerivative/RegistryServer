@@ -1,26 +1,26 @@
 use std::collections::HashSet;
 
-use sqlx::{Executor, PgConnection, Pool, Postgres};
+use sqlx::{Executor, PgConnection, Postgres};
 
 use crate::{crate_name::CrateName, publish::Metadata};
 
 pub async fn crate_exists_exact(
     crate_name: &CrateName,
-    pool: &Pool<Postgres>,
+    exec: &mut PgConnection,
 ) -> Result<bool, sqlx::Error> {
     let res = sqlx::query!(
         "SELECT EXISTS(SELECT crate_id, original_name FROM crates WHERE original_name = $1)",
         crate_name.original_str()
     )
-    .fetch_one(pool)
+    .fetch_one(exec)
     .await?;
     Ok(res.exists.unwrap())
 }
 pub async fn crate_exists_or_normalized(
     crate_name: &CrateName,
-    pool: &Pool<Postgres>,
+    exec: &mut PgConnection,
 ) -> Result<CrateExists, sqlx::Error> {
-    if crate_exists_exact(crate_name, pool).await? {
+    if crate_exists_exact(crate_name, &mut *exec).await? {
         return Ok(CrateExists::Yes);
     }
     let res_normalized = sqlx::query!(
@@ -28,7 +28,7 @@ pub async fn crate_exists_or_normalized(
         WHERE normalize_crate_name(original_name) = $1)",
         crate_name.normalized()
     )
-    .fetch_one(pool)
+    .fetch_one(&mut *exec)
     .await?;
     if res_normalized.exists.unwrap() {
         Ok(CrateExists::NoButNormalized)
@@ -205,6 +205,22 @@ pub async fn add_version(
     }
     Ok(())
 }
+pub async fn get_versions(crate_name: &CrateName, exec: &mut PgConnection) -> Result<Vec<semver::Version>, sqlx::Error> {
+    Ok(sqlx::query!(
+        "SELECT vers
+        FROM versions
+        JOIN crates
+        ON versions.crate = crates.crate_id
+        WHERE crates.original_name = $1",
+        crate_name.original_str()
+    )
+    .fetch_all(exec)
+    .await?
+    .into_iter()
+    .map(|x| x.vers.parse().expect("hope all the database contents are valid"))
+    .collect())
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum CrateExists {
     /// Crate matches exactly with name in database
