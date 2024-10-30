@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use sqlx::{Executor, PgConnection, Pool, Postgres};
 
-use crate::{crate_name::CrateName, publish::Metadata};
+use crate::{crate_name::CrateName, publish::Metadata, version::VersionMetadata};
 
 pub async fn crate_exists_exact(
     crate_name: &CrateName,
@@ -142,6 +142,67 @@ pub async fn delete_category_entries(
     )
     .execute(exec)
     .await?;
+    Ok(())
+}
+pub async fn add_version(
+    version_metadata: &VersionMetadata,
+    authors: &[String],
+    exec: &mut PgConnection
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        "INSERT INTO versions (crate, vers, cksum, links, rust_version)
+        SELECT crates.crate_id, $1, $2, $3, $4
+        FROM crates
+        WHERE crates.original_name = $5",
+        version_metadata.vers.to_string(),
+        version_metadata.cksum,
+        version_metadata.links,
+        version_metadata.rust_version.as_ref().map(|rv| rv.to_string()),
+        version_metadata.name.original_str()
+    )
+    .execute(&mut *exec)
+    .await?;
+    // features2 is empty
+    for (feature, feature_deps) in &version_metadata.features {
+        sqlx::query!(
+            "INSERT INTO version_features (crate_id, crate_version, feature_name)
+            SELECT crates.crate_id, $1, $2
+            FROM crates
+            WHERE crates.original_name = $3",
+            version_metadata.vers.to_string(),
+            feature.as_ref(),
+            version_metadata.name.original_str()
+        )
+        .execute(&mut *exec)
+        .await?;
+        for dependency_name in feature_deps {
+            sqlx::query!(
+                "INSERT INTO feature_dependencies (crate_id, crate_version, feature_name, dependency_name)
+                SELECT crates.crate_id, $1, $2, $3
+                FROM crates
+                WHERE crates.original_name = $4",
+                version_metadata.vers.to_string(),
+                feature.as_ref(),
+                dependency_name,
+                version_metadata.name.original_str(),
+            )
+            .execute(&mut *exec)
+            .await?;
+        }
+    }
+    for author in authors {
+        sqlx::query!(
+            "INSERT INTO version_authors (crate_id, version, author)
+            SELECT crates.crate_id, $1, $2
+            FROM crates
+            WHERE crates.original_name = $3",
+            version_metadata.vers.to_string(),
+            author,
+            version_metadata.name.original_str(),
+        )
+        .execute(&mut *exec)
+        .await?;
+    }
     Ok(())
 }
 #[derive(Clone, Copy, Debug)]

@@ -15,42 +15,30 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, Transaction};
 
 use crate::{
-    crate_file::create_crate_file,
-    crate_name::CrateName,
-    feature_name::FeatureName,
-    non_empty_strings::{Description, Keyword},
-    postgres::{
-        add_crate, add_keywords, crate_exists_or_normalized, delete_category_entries,
-        delete_keywords, get_bad_categories, insert_categories, CrateExists,
-    },
-    ServerState,
+    crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, index::add_file_to_index, non_empty_strings::{Description, Keyword}, postgres::{
+        add_crate, add_keywords, add_version, crate_exists_or_normalized, delete_category_entries, delete_keywords, get_bad_categories, insert_categories, CrateExists
+    }, version::{build_version_metadata, RustVersionReq}, ServerState
 };
 
 pub async fn publish_handler(
     State(ServerState {
         database_connection_pool,
-        ..
+        git_repository_path
     }): State<ServerState>,
     body: Body,
-) -> Result<Json<PublishWarnings>, Response> {
+) -> Result<Json<SuccessfulPublish>, Response> {
     let mut other_warnings = Vec::new();
     let body_bytes = to_bytes(body, usize::MAX)
         .await
         .map_err(|_| (StatusCode::PAYLOAD_TOO_LARGE, "payload too large").into_response())?;
-    let (metadata, file_content) =
+    let (crate_metadata, file_content) =
         extract_request_body(&body_bytes).map_err(IntoResponse::into_response)?;
-    let publish_kind = match crate_exists_or_normalized(&metadata.name, &database_connection_pool)
+    let publish_kind = match crate_exists_or_normalized(&crate_metadata.name, &database_connection_pool)
         .await
         .inspect_err(|e| eprintln!("Failed to check if crate exists: {e}"))
         .map_err(|_e| internal_server_error("couldn't check if crate exists"))?
     {
-        CrateExists::NoButNormalized => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                "Crate exists under different -_ usage or capitalization",
-            )
-                .into_response())
-        }
+        CrateExists::NoButNormalized => return Err(bad_request("Crate exists under different -_ usage or capitalization")),
         // Add crate to database, assign new owner
         CrateExists::No => PublishKind::NewCrate,
         // Check if person is owner, if newer version update crate data
@@ -65,39 +53,53 @@ pub async fn publish_handler(
     match publish_kind {
         // Clean adding of new crate possible
         PublishKind::NewCrate => {
-            add_crate(&metadata, &mut *transaction)
+            add_crate(&crate_metadata, &mut *transaction)
                 .await
                 .map_err(|_e| internal_server_error("adding crate to db failed"))?;
             invalid_categories
-                .extend(add_keywords_and_categories(&metadata, &mut transaction).await?);
+                .extend(add_keywords_and_categories(&crate_metadata, &mut transaction).await?);
         }
         // Old categories need to be deleted before
         PublishKind::NewVersionForExistingCrate => {
-            delete_keywords(&metadata.name, &mut transaction)
+            delete_keywords(&crate_metadata.name, &mut transaction)
                 .await
                 .inspect_err(|e| eprintln!("Deleting keywords failed: {e}"))
                 .map_err(|_e| internal_server_error("removing old keywords failed"))?;
-            delete_category_entries(&metadata.name, &mut transaction)
+            delete_category_entries(&crate_metadata.name, &mut transaction)
                 .await
                 .inspect_err(|e| eprintln!("Deleting category entries failed: {e}"))
                 .map_err(|_e| internal_server_error("removing old categories failed"))?;
             invalid_categories
-                .extend(add_keywords_and_categories(&metadata, &mut transaction).await?);
+                .extend(add_keywords_and_categories(&crate_metadata, &mut transaction).await?);
         }
         // Categories and keywords are ignored
         PublishKind::OldVersionForExistingCrate => {
             other_warnings.push(String::from("Newer version for this crate is already in the registry. Categories and keywords will not be overwritten."));
         }
     };
-    eprintln!("Invalid categories: {invalid_categories:#?}");
-    create_crate_file(file_content, metadata.vers, &metadata.name)
+    create_crate_file(file_content, crate_metadata.vers.clone(), &crate_metadata.name)
         .await
         .map_err(|e| internal_server_error(e.to_string()))?;
+    let version_metadata = build_version_metadata(&crate_metadata, file_content);
+    add_version(&version_metadata, &crate_metadata.authors, &mut transaction)
+        .await
+        .inspect_err(|e| eprintln!("failed to add crate version to db: {e}"))
+        .map_err(|_e| internal_server_error("failed to add crate version to database"))?;
+    if let Err(e) = add_file_to_index(&version_metadata, &git_repository_path).await {
+        eprintln!("Failed to add file to index: {e}");
+        return Err(internal_server_error("failed to add file to index"))
+    };
     transaction
         .commit()
         .await
         .map_err(|_e| internal_server_error("committing to database failed"))?;
-    Err((StatusCode::SERVICE_UNAVAILABLE, "still building").into_response())
+    Ok(Json(SuccessfulPublish {
+        warnings: PublishWarnings {
+            invalid_categories,
+            invalid_badges: Vec::new(),
+            other: other_warnings
+        }
+    }))
 }
 
 async fn add_keywords_and_categories(
@@ -127,6 +129,10 @@ async fn add_keywords_and_categories(
 
 fn internal_server_error(s: impl Into<String>) -> Response {
     (StatusCode::INTERNAL_SERVER_ERROR, s.into()).into_response()
+} 
+
+fn bad_request(s: impl Into<String>) -> Response {
+    (StatusCode::BAD_REQUEST, s.into()).into_response()
 }
 
 #[derive(Debug, Serialize)]
@@ -165,6 +171,7 @@ fn extract_request_body(bytes: &[u8]) -> Result<(Metadata, &[u8]), BodyError> {
     }
     let metadata =
         serde_json::from_slice::<Metadata>(metadata_bytes).map_err(BodyError::InvalidMetadata)?;
+    eprintln!("Received metadata: {metadata:#?}");
     Ok((metadata, file_content))
 }
 
@@ -219,21 +226,21 @@ pub struct Metadata {
     pub(crate) repository: Option<String>,
     pub(crate) badges: BTreeMap<String, BTreeMap<String, String>>,
     pub(crate) links: Option<String>,
-    pub(crate) rust_version: Option<String>,
+    pub(crate) rust_version: Option<RustVersionReq>,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct DependencyMetadata {
-    name: CrateName,
-    version_req: VersionReq,
-    features: Vec<FeatureName>,
-    optional: bool,
-    default_features: bool,
-    target: Option<String>,
-    kind: DependencyKind,
-    registry: Option<String>,
-    explicit_name_in_toml: Option<CrateName>,
+    pub(crate) name: CrateName,
+    pub(crate) version_req: VersionReq,
+    pub(crate) features: Vec<FeatureName>,
+    pub(crate) optional: bool,
+    pub(crate) default_features: bool,
+    pub(crate) target: Option<String>,
+    pub(crate) kind: DependencyKind,
+    pub(crate) registry: Option<String>,
+    pub(crate) explicit_name_in_toml: Option<CrateName>,
 }
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DependencyKind {
     Dev,
