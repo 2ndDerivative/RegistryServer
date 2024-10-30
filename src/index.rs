@@ -7,7 +7,7 @@ use crate::{read_only_mutex::ReadOnlyMutex, version::VersionMetadata};
 pub async fn add_file_to_index(version_metadata: &VersionMetadata, repository: &ReadOnlyMutex<PathBuf>) -> Result<(), AddToIndexError> {
     let repository = repository.lock().await;
     add_version_to_index_file(version_metadata, &repository).await?;
-    let commit_message = format!("Add new crate: [{}] version: {}", version_metadata.name.original_str(), version_metadata.vers);
+    let commit_message = format!("ADD CRATE: [{}] version: {}", version_metadata.name.original_str(), version_metadata.vers);
     commit_to_index(&repository, &index_file_path(version_metadata, &repository), &commit_message).await.unwrap();
     Ok(())
 }
