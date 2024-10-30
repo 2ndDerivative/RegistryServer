@@ -147,7 +147,7 @@ pub async fn delete_category_entries(
 pub async fn add_version(
     metadata: &Metadata,
     cksum: &str,
-    exec: &mut PgConnection
+    exec: &mut PgConnection,
 ) -> Result<(), sqlx::Error> {
     sqlx::query!(
         "INSERT INTO versions (crate, vers, cksum, links, rust_version)
@@ -205,7 +205,10 @@ pub async fn add_version(
     }
     Ok(())
 }
-pub async fn get_versions(crate_name: &CrateName, exec: &mut PgConnection) -> Result<Vec<semver::Version>, sqlx::Error> {
+pub async fn get_versions(
+    crate_name: &CrateName,
+    exec: &mut PgConnection,
+) -> Result<Vec<semver::Version>, sqlx::Error> {
     Ok(sqlx::query!(
         "SELECT vers
         FROM versions
@@ -217,7 +220,11 @@ pub async fn get_versions(crate_name: &CrateName, exec: &mut PgConnection) -> Re
     .fetch_all(exec)
     .await?
     .into_iter()
-    .map(|x| x.vers.parse().expect("hope all the database contents are valid"))
+    .map(|x| {
+        x.vers
+            .parse()
+            .expect("hope all the database contents are valid")
+    })
     .collect())
 }
 

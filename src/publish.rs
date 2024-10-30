@@ -16,15 +16,22 @@ use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
 
 use crate::{
-    crate_file::create_crate_file, crate_name::CrateName, feature_name::FeatureName, index::add_file_to_index, non_empty_strings::{Description, Keyword}, postgres::{
-        add_crate, add_keywords, add_version, crate_exists_or_normalized, delete_category_entries, delete_keywords, get_bad_categories, get_versions, insert_categories, CrateExists
-    }, ServerState
+    crate_file::create_crate_file,
+    crate_name::CrateName,
+    feature_name::FeatureName,
+    index::add_file_to_index,
+    non_empty_strings::{Description, Keyword},
+    postgres::{
+        add_crate, add_keywords, add_version, crate_exists_or_normalized, delete_category_entries,
+        delete_keywords, get_bad_categories, get_versions, insert_categories, CrateExists,
+    },
+    ServerState,
 };
 
 pub async fn publish_handler(
     State(ServerState {
         database_connection_pool,
-        git_repository_path
+        git_repository_path,
     }): State<ServerState>,
     body: Body,
 ) -> Result<Json<SuccessfulPublish>, Response> {
@@ -35,15 +42,19 @@ pub async fn publish_handler(
     let (crate_metadata, file_content) =
         extract_request_body(&body_bytes).map_err(IntoResponse::into_response)?;
     let mut transaction = database_connection_pool
-    .begin()
-    .await
-    .map_err(|_e| internal_server_error("couldn't start transaction"))?;
+        .begin()
+        .await
+        .map_err(|_e| internal_server_error("couldn't start transaction"))?;
     let publish_kind = match crate_exists_or_normalized(&crate_metadata.name, &mut transaction)
         .await
         .inspect_err(|e| eprintln!("Failed to check if crate exists: {e}"))
         .map_err(|_e| internal_server_error("couldn't check if crate exists"))?
     {
-        CrateExists::NoButNormalized => return Err(bad_request("Crate exists under different -_ usage or capitalization")),
+        CrateExists::NoButNormalized => {
+            return Err(bad_request(
+                "Crate exists under different -_ usage or capitalization",
+            ))
+        }
         // Add crate to database, assign new owner
         CrateExists::No => PublishKind::NewCrate,
         // Check if person is owner, if newer version update crate data
@@ -59,7 +70,7 @@ pub async fn publish_handler(
             } else {
                 PublishKind::OldVersionForExistingCrate
             }
-        },
+        }
     };
 
     let mut invalid_categories = Vec::new();
@@ -90,9 +101,13 @@ pub async fn publish_handler(
             other_warnings.push(String::from("Newer version for this crate is already in the registry. Categories and keywords will not be overwritten."));
         }
     };
-    create_crate_file(file_content, crate_metadata.vers.clone(), &crate_metadata.name)
-        .await
-        .map_err(|e| internal_server_error(e.to_string()))?;
+    create_crate_file(
+        file_content,
+        crate_metadata.vers.clone(),
+        &crate_metadata.name,
+    )
+    .await
+    .map_err(|e| internal_server_error(e.to_string()))?;
     let cksum = hash_file_content(file_content);
     add_version(&crate_metadata, &cksum, &mut transaction)
         .await
@@ -100,7 +115,7 @@ pub async fn publish_handler(
         .map_err(|_e| internal_server_error("failed to add crate version to database"))?;
     if let Err(e) = add_file_to_index(&crate_metadata, file_content, &git_repository_path).await {
         eprintln!("Failed to add file to index: {e}");
-        return Err(internal_server_error("failed to add file to index"))
+        return Err(internal_server_error("failed to add file to index"));
     };
     transaction
         .commit()
@@ -110,8 +125,8 @@ pub async fn publish_handler(
         warnings: PublishWarnings {
             invalid_categories,
             invalid_badges: Vec::new(),
-            other: other_warnings
-        }
+            other: other_warnings,
+        },
     }))
 }
 
@@ -149,7 +164,7 @@ async fn add_keywords_and_categories(
 
 fn internal_server_error(s: impl Into<String>) -> Response {
     (StatusCode::INTERNAL_SERVER_ERROR, s.into()).into_response()
-} 
+}
 
 fn bad_request(s: impl Into<String>) -> Response {
     (StatusCode::BAD_REQUEST, s.into()).into_response()
@@ -282,12 +297,15 @@ impl RustVersionReq {
 }
 impl<'de> Deserialize<'de> for RustVersionReq {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-        where
-            D: serde::Deserializer<'de> {
+    where
+        D: serde::Deserializer<'de>,
+    {
         let vr = VersionReq::deserialize(deserializer)?;
         match Self::new(vr) {
             Some(rv) => Ok(rv),
-            None => Err(serde::de::Error::custom("rust version requirement can't have comparators")),
+            None => Err(serde::de::Error::custom(
+                "rust version requirement can't have comparators",
+            )),
         }
     }
 }

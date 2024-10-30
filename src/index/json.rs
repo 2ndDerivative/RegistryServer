@@ -4,7 +4,11 @@ use semver::{Version, VersionReq};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::{crate_name::CrateName, feature_name::FeatureName, publish::{self, DependencyKind, Metadata, RustVersionReq}};
+use crate::{
+    crate_name::CrateName,
+    feature_name::FeatureName,
+    publish::{self, DependencyKind, Metadata, RustVersionReq},
+};
 
 pub fn build_version_metadata(metadata: &Metadata, crate_file: &[u8]) -> VersionMetadata {
     let mut hasher = Sha256::new();
@@ -15,30 +19,53 @@ pub fn build_version_metadata(metadata: &Metadata, crate_file: &[u8]) -> Version
     let name = metadata.name.clone();
     let links = metadata.links.clone();
     let rust_version = metadata.rust_version.clone();
-    let deps = metadata.deps.clone()
+    let deps = metadata
+        .deps
+        .clone()
         .into_iter()
-        .map(|publish::DependencyMetadata {
-            name, version_req: req, features,
-            optional, default_features,
-            target, kind,
-            registry, explicit_name_in_toml }| {
-            let (name, package) = match (
-                name,
-                explicit_name_in_toml
-            ) {
-                (original, Some(renamed_name)) => (renamed_name, Some(original)),
-                (original, None) => (original, None)
-            };
-            VersionDependencyMetadata {
-                name, req, features,
-                optional, default_features,
-                target, kind,
-                registry, package,
-            }
-        })
+        .map(
+            |publish::DependencyMetadata {
+                 name,
+                 version_req: req,
+                 features,
+                 optional,
+                 default_features,
+                 target,
+                 kind,
+                 registry,
+                 explicit_name_in_toml,
+             }| {
+                let (name, package) = match (name, explicit_name_in_toml) {
+                    (original, Some(renamed_name)) => (renamed_name, Some(original)),
+                    (original, None) => (original, None),
+                };
+                VersionDependencyMetadata {
+                    name,
+                    req,
+                    features,
+                    optional,
+                    default_features,
+                    target,
+                    kind,
+                    registry,
+                    package,
+                }
+            },
+        )
         .collect();
     let features = metadata.features.clone();
-    VersionMetadata { name, vers, deps, cksum, features, yanked: false, links, v: 2, features2: BTreeMap::new(), rust_version }
+    VersionMetadata {
+        name,
+        vers,
+        deps,
+        cksum,
+        features,
+        yanked: false,
+        links,
+        v: 2,
+        features2: BTreeMap::new(),
+        rust_version,
+    }
 }
 
 #[derive(Clone, Debug, Serialize)]
