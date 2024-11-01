@@ -259,6 +259,7 @@ pub struct Metadata {
     /// FILE WITH CONTENT of the license
     pub(crate) license_file: Option<String>,
     pub(crate) repository: Option<String>,
+    #[expect(dead_code)]
     pub(crate) badges: BTreeMap<String, BTreeMap<String, String>>,
     pub(crate) links: Option<String>,
     pub(crate) rust_version: Option<RustVersionReq>,
